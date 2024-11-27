@@ -1,4 +1,3 @@
-# poli-spectrum
 <html>
 <head>
 <style>
