@@ -1,10 +1,10 @@
-# poli-spectrum
+# Poli-Spectrum
 <center>
 <img src='figures/overall_figure.png' alt='Poli-Spectrum' width='600'>
 </center>
 
 <p style='font-size: 18px;'>
-&emsp;Official implementation of "Poli-Spectrum: A Spectral Approach to Political Stance Detection". This repository contains codes for the training and step and other complementary codes on the english political news data, BIGNEWSBLN-Right/Left from "<i><b>POLITICS: Pretraining with Same-story Article Comparison for Ideology Prediction and Stance Detection(Liu et.al, Findings of NAACL 2022)</b></i>".
+&emsp;Official implementation of "Poli-Spectrum: A Spectral Approach to Political Stance Detection". This repository contains codes for the training and inference steps and other complementary codes for the algorithmon the english political news data, BIGNEWSBLN-Right/Left from "<i><b>POLITICS: Pretraining with Same-story Article Comparison for Ideology Prediction and Stance Detection(Liu et.al, Findings of NAACL 2022)</b></i>".
 </p>
 
 <br>

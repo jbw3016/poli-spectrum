@@ -1,130 +1,184 @@
-from trainer import Trainer
-from scheduler import Scheduler, EarlyStopping
-from model import SparseVAE
-import json
+from utils.trainer import Trainer
+from utils.scheduler import Scheduler, EarlyStopping
+from utils.model import SparseVAE
+import json, os, argparse
 from datetime import datetime
 import torch
 from torch.utils.data import DataLoader
 
-def train_main(model, save_path, data_path, save_info_path):
+def arg_parse():
+    parser = argparse.ArgumentParser(description = 'SparseVAE model training')
+    
+    # parameters of the model for training
+    parser.add_argument('--model_type', type=str, default='bert-base-uncased',
+                        help='model for embedding (defalut: bert-base-uncased)')
+    parser.add_argument('--input_dim', type=int, default=768,
+                        help='input dimension of the model (default: 768)')
+    parser.add_argument('--hidden_dims', type=int, nargs='+', default=[512, 256, 128],
+                        help='dimensions of hidden layers (default: [512, 256, 128])')
+    parser.add_argument('--latent_dim', type=int, default=16,
+                        help='latent dimension of the model (default: 16)')
+    parser.add_argument('--dropout_rate', type=float, default=0.2,
+                        help='dropout rate of the model (default: 0.2)')
+    
+    # parameters for training
+    parser.add_argument('--epochs', type=int, default=100,
+                        help='number of epochs (default: 100)')
+    parser.add_argument('--batch_size', type=int, default=32,
+                        help='batch size (default: 32)')
+    parser.add_argument('--learning_rate', type=float, default=2e-3,
+                        help='learning rate (default: 2e-3)')
+    parser.add_argument('--scheduler_patience', type=int, default=3,
+                        help='scheduler patience (default: 3)')
+    parser.add_argument('--scheduler_factor', type=float, default=0.5,
+                        help='scheduler factor (default: 0.5)')
+    parser.add_argument('--early_stopping_patience', type=int, default=10,
+                        help='early stopping patience (default: 10)')
+    
+    # Loss weight related arguments
+    parser.add_argument('--recon_beta', type=float, default=1.0,
+                        help='reconstruction loss weight (default: 1.0)')
+    parser.add_argument('--kl_beta', type=float, default=1.0,
+                        help='KL divergence loss weight (default: 1.0)')
+    parser.add_argument('--class_beta', type=float, default=1.0,
+                        help='classification loss weight (default: 1.0)')
+    
+    # Path related arguments
+    parser.add_argument('--save_path', type=str, required=True,
+                        help='model save path')
+    parser.add_argument('--data_path', type=str, required=True,
+                        help='data path')
+    parser.add_argument('--save_info_path', type=str, required=True,
+                        help='training information save path')
+    
+    # Other settings
+    parser.add_argument('--gpu', type=int, default=0,
+                        help='GPU number to use')
+    parser.add_argument('--use_amp', action='store_true',
+                        help='use automatic mixed precision')
+    
+    args = parser.parse_args()
+    return args
+
+def train_main():
     '''
     --------------------------------
-    Hyperparameters Settings
+    1. Argument Parsing
+    2. Saving Directory Setting
+    3. Records for Hyperparameters
     --------------------------------
     '''
-    DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    EPOCHS = 100
-    BATCH_SIZE = 32
-    LEARNING_RATE = 2e-3
-    scheduler_patience = 3
+    # parse the arguments
+    args = arg_parse()
     
-    # model architecture
-    input_dim = 768
-    hidden_dims = [512, 256, 128]
-    latent_dim = 16
-    dropout_rate = 0.2
+    # GPU Setting
+    device = torch.device(f'cuda:{args.gpu}' if torch.cuda.is_available() else 'cpu')
     
-    # loss function weights
-    recon_beta = 1.0
-    kl_beta = 1.0
-    class_beta = 1.0
+    # saving directory
+    os.makedirs(os.path.dirname(args.save_path), exist_ok=True)
+    os.makedirs(os.path.dirname(args.save_info_path), exist_ok=True)
     
-    # for saving hyperparameters
+    # saving hyperparameters for records
     hyperparameters = {
-        'model_name': model.__name__,
-        'device': str(DEVICE),
-        'epochs': EPOCHS,
-        'batch_size': BATCH_SIZE,
-        'learning_rate': LEARNING_RATE,
-        'scheduler_patience': scheduler_patience,
+        'model_type': args.model_type,
+        'device': str(device),
+        'epochs': args.epochs,
+        'batch_size': args.batch_size,
+        'learning_rate': args.learning_rate,
+        'scheduler_patience': args.scheduler_patience,
         'model_architecture': {
-            'input_dim': input_dim,
-            'hidden_dims': hidden_dims,
-            'latent_dim': latent_dim,
-            'dropout_rate': dropout_rate
+            'input_dim': args.input_dim,
+            'hidden_dims': args.hidden_dims,
+            'latent_dim': args.latent_dim,
+            'dropout_rate': args.dropout_rate
         },
         'scheduler_params': {
-            'factor': 0.5,
-            'patience': scheduler_patience
+            'factor': args.scheduler_factor,
+            'patience': args.scheduler_patience
         },
-        'early_stopping_params': {
-            'recon_beta': recon_beta,
-            'kl_beta': kl_beta,
-            'class_beta': class_beta
+        'loss_weights': {
+            'recon_beta': args.recon_beta,
+            'kl_beta': args.kl_beta,
+            'class_beta': args.class_beta
         },
-        'data_path': data_path,
+        'data_path': args.data_path,
         'timestamp': datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     }
         
     # Information of device
-    print(f'Device: {DEVICE}')
+    print(f'Device: {device}')
     print(f'GPU Available: {torch.cuda.is_available()}')
     if torch.cuda.is_available():
-        print(f'GPU Name: {torch.cuda.get_device_name(DEVICE)}')
+        print(f'GPU Name: {torch.cuda.get_device_name(device)}')
 
     '''
     --------------------------------
-    Data Loading
+    1. Data Loading
+    2. Model Initialization
+    3. Scheduler and Optimizer Setting
+    4. Trainer Initialization
+    5. Training Execution
     --------------------------------
     '''
-    # Dataloader (Train)
-    train_data = torch.load(data_path, map_location=DEVICE)
+    # Data Loading
+    train_data = torch.load(args.data_path, map_location=device)
+    train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True)
     
-    train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
+    # Model Initialization
+    sparse_model = SparseVAE(
+        input_dim=args.input_dim,
+        hidden_dims=args.hidden_dims,
+        latent_dim=args.latent_dim,
+        dropout_rate=args.dropout_rate
+    ).to(device)
     
-    '''
-    --------------------------------
-    Model Initialization
-    --------------------------------
-    '''
-    # VAE model
-    sparse_model = model(
-        input_dim = input_dim,
-        hidden_dims = hidden_dims,
-        latent_dim = latent_dim,
-        dropout_rate = dropout_rate
-    ).to(DEVICE)
-
-    # scheduler
-    scheduler_manager = Scheduler(sparse_model, learning_rate=LEARNING_RATE)
+    # Scheduler Setting
+    scheduler_manager = Scheduler(sparse_model, learning_rate=args.learning_rate)
     optimizer = scheduler_manager.get_optimizer()
     scheduler = scheduler_manager.get_scheduler(
-        factor=0.5, patience=scheduler_patience, verbose=True
-    )
-
-    # Early stopping
-    early_stopping = EarlyStopping(
-        path=save_path, patience=10, min_delta=0.0, verbose=True
+        factor=args.scheduler_factor,
+        patience=args.scheduler_patience,
+        verbose=True
     )
     
-    '''
-    --------------------------------
-    Initailization Trainer
-    --------------------------------
-    '''
-    # Trainer Setting
+    # Early stopping Setting
+    early_stopping = EarlyStopping(
+        path=args.save_path,
+        patience=args.early_stopping_patience,
+        min_delta=0.0,
+        verbose=True
+    )
+    
+    # Trainer Initialization
     trainer = Trainer(
         model=sparse_model,
         optimizer=optimizer,
-        device=DEVICE,
+        device=device,
         scheduler=scheduler,
-        epochs=EPOCHS,
-        batch_size=BATCH_SIZE,
-        learning_rate=LEARNING_RATE,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
         early_stopping=early_stopping,
-        path=save_path,
-        use_amp=True
+        path=args.save_path,
+        use_amp=args.use_amp
     )
     
-    # Training in-progress
+    # Training Execution
     try:
         print('\n ### Start Training ###')
-        history = trainer.train(train_loader, EPOCHS, recon_beta=recon_beta, kl_beta=kl_beta, class_beta=class_beta)
+        history = trainer.train(
+            train_loader,
+            args.epochs,
+            recon_beta=args.recon_beta,
+            kl_beta=args.kl_beta,
+            class_beta=args.class_beta
+        )
         print('### Training Completed ###')
         
-        # Load the Best model
+        # Load the best model
         trainer.load_checkpoint()
         
+        # Save training results
         hyperparameters['training_results'] = {
             'total_loss': float(history['total_loss'][-1]),
             'recon_loss': float(history['recon_loss'][-1]),
@@ -133,10 +187,10 @@ def train_main(model, save_path, data_path, save_info_path):
         }
         
         # Save hyperparameters
-        with open(save_info_path, 'w') as f:
+        with open(args.save_info_path, 'w') as f:
             json.dump(hyperparameters, f, indent=4)
         
-        # Trainig Resultss
+        # Print training results
         print('\n ### Training Results ###')
         print(f'Total loss: {history["total_loss"][-1]:.6f}')
         print(f'Reconstruction loss: {history["recon_loss"][-1]:.6f}')
@@ -146,3 +200,6 @@ def train_main(model, save_path, data_path, save_info_path):
     except Exception as e:
         print(f'### Error during training: {str(e)} ###')
         raise e
+
+if __name__ == "__main__":
+    train_main()
