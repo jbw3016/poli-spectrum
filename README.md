@@ -16,5 +16,10 @@
 <br>
 
 <p style='font-size: 18px;'>
+&nbsp;&emsp;This research had been presented at the <i><b>Korea Data Mining Society (KDMS 2024 Fall)</b></i> in a poster session.
+</p>
+
+<br>
+<p style='font-size: 18px;'>
 &nbsp;&emsp;The codes are implemented in Python 3.8.16 and PyTorch 1.13.1.
 </p>
