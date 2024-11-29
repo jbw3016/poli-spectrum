@@ -23,7 +23,6 @@
 </p>
 
 <pre>
-<code>
 python train.py \
     --model_type bert-base-uncased \
     --input_dim 768 \
@@ -43,8 +42,7 @@ python train.py \
     --save_info_path ./saved_models/info.json \
     --gpu 0 \
     --use_amp
-</pre>
-</code>
+</pre
 
 <br>
 
